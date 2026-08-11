@@ -5,7 +5,7 @@
 ;   ffmpeg\ffmpeg.exe, ffmpeg\ffprobe.exe   (bundled ffmpeg)
 
 #define MyAppName "TikTok Video Audio Converter"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "TeeQiJing"
 #define MyAppURL "https://github.com/TeeQiJing/TikTokVideoAudioConverter"
 #define MyAppExeName "TikTokVideoAudioConverter.exe"
@@ -35,6 +35,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "bin\yt-dlp.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "ffmpeg\ffmpeg.exe"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion
 Source: "ffmpeg\ffprobe.exe"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion
 

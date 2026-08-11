@@ -3,6 +3,7 @@ build/
 dist/
 installer/Output/
 installer/ffmpeg/
+installer/bin/
 __pycache__/
 
 # personal data / downloads

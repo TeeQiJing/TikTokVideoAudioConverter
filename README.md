@@ -10,6 +10,8 @@ perfect for building a music library for your car radio or offline player.
 - **Remembers what it already downloaded** — run it again anytime and only
   new songs are fetched
 - **Auto-retries** flaky TikTok responses
+- **Self-updating download engine** — when TikTok changes something and
+  breaks downloading, the fix arrives automatically, no reinstall needed
 
 ![App flow](https://img.shields.io/badge/TikTok-→%20MP3-brightgreen)
 
@@ -70,20 +72,24 @@ Copy the MP3s from your songs folder onto the pendrive. Tips:
 - **"Unable to extract..." / some songs failed** — TikTok's servers are
   moody; the app already retries 3 times per run. Just run it again later,
   already-downloaded songs are never re-downloaded.
-- **Downloads suddenly stop working entirely** — TikTok changed something.
-  Check this repo's Releases for an updated version.
+- **Downloads suddenly stop working entirely** — TikTok changed something
+  and broke the downloader for everyone. The app updates its download
+  engine ([yt-dlp](https://github.com/yt-dlp/yt-dlp)) automatically before
+  every run, so once the yt-dlp team ships a fix (usually within days),
+  it just starts working again — try again a day or two later.
 - **A saved video won't convert** — photo/slideshow posts and private or
   region-locked videos can't always be downloaded.
 
 ## How It Works
 
 The app is a small Python/Tkinter GUI around two excellent open-source
-tools:
+tools, both bundled by the installer:
 
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — handles talking to TikTok
-  (including its JS challenge and browser impersonation via
-  [curl_cffi](https://github.com/lexiforest/curl_cffi)), reads collection
-  playlists, and picks a download format
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) (official standalone exe) —
+  handles talking to TikTok (including its JS challenge and browser
+  impersonation), reads collection playlists, and picks a download
+  format. The app runs its built-in self-updater (`yt-dlp -U`) before
+  every download, so extractor fixes arrive automatically.
 - [ffmpeg](https://ffmpeg.org/) — converts the audio track to MP3 and
   embeds title/artist metadata
 
@@ -95,23 +101,28 @@ ID, which is what makes incremental syncing and cheap retries possible.
 ```bat
 git clone https://github.com/TeeQiJing/TikTokVideoAudioConverter.git
 cd TikTokVideoAudioConverter
-pip install yt-dlp "curl_cffi<0.16" pyinstaller
+
+:: fetch the tools the app drives (searched in installer\bin and installer\ffmpeg
+:: when running from source):
+::   installer\bin\yt-dlp.exe      https://github.com/yt-dlp/yt-dlp/releases
+::   installer\ffmpeg\ffmpeg.exe   https://www.gyan.dev/ffmpeg/builds/
+::   installer\ffmpeg\ffprobe.exe
 
 :: run directly
 python app.py
 
 :: or build the standalone exe
-python -m PyInstaller --noconfirm --onefile --windowed ^
-    --name TikTokVideoAudioConverter --collect-all yt_dlp --collect-all curl_cffi app.py
+pip install pyinstaller
+python -m PyInstaller --noconfirm --onefile --windowed --name TikTokVideoAudioConverter app.py
 ```
 
-To build the installer, place `ffmpeg.exe` and `ffprobe.exe` (e.g. from
-[gyan.dev ffmpeg builds](https://www.gyan.dev/ffmpeg/builds/)) into
-`installer\ffmpeg\`, then compile `installer\installer.iss` with
-[Inno Setup 6](https://jrsoftware.org/isinfo.php).
+To build the installer, compile `installer\installer.iss` with
+[Inno Setup 6](https://jrsoftware.org/isinfo.php) (it bundles the exe
+plus the `bin` and `ffmpeg` tool folders).
 
 `download_songs.py` is a no-GUI command-line version of the same pipeline
-(reads links from `links.txt`) — handy for scripting.
+(reads links from `links.txt`, needs `pip install yt-dlp "curl_cffi<0.16"`)
+— handy for scripting.
 
 ## Disclaimer
 

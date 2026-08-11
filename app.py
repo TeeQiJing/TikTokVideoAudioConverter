@@ -2,6 +2,10 @@
 
 Paste TikTok links (single videos or a public collection link) and get MP3s.
 
+The download engine is the official standalone yt-dlp.exe (bundled by the
+installer in bin\\). Before every run the app lets yt-dlp update itself,
+so fixes for TikTok changes arrive without reinstalling this app.
+
 Run normally for the GUI. Hidden flags for testing/packaging:
   --cli <url>... [-o <folder>]   run one download without the GUI
   --smoke                        open the GUI and close it after 2 seconds
@@ -12,6 +16,7 @@ import os
 import queue
 import re
 import shutil
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -24,17 +29,20 @@ DEFAULT_OUTPUT = Path.home() / "Music" / "TikTok Songs"
 
 URL_RE = re.compile(r"https?://(?:www\.|vm\.|vt\.|m\.)?tiktok\.com/\S+")
 
+CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
-# ---------------------------------------------------------------- core logic
+
+# ---------------------------------------------------------------- tool paths
+
+def app_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent
+
 
 def find_ffmpeg() -> str | None:
     """Locate the folder holding ffmpeg.exe/ffprobe.exe."""
-    candidates = []
-    # Bundled next to the packaged exe (installer places an ffmpeg folder there)
-    if getattr(sys, "frozen", False):
-        candidates.append(Path(sys.executable).parent / "ffmpeg")
-    candidates.append(Path(__file__).parent / "ffmpeg")
-    for c in candidates:
+    for c in (app_dir() / "ffmpeg", app_dir() / "installer" / "ffmpeg"):
         if (c / "ffmpeg.exe").exists():
             return str(c)
     found = shutil.which("ffmpeg")
@@ -48,6 +56,17 @@ def find_ffmpeg() -> str | None:
     return None
 
 
+def find_ytdlp() -> str | None:
+    """Locate the standalone yt-dlp.exe."""
+    for c in (app_dir() / "bin" / "yt-dlp.exe",
+              app_dir() / "installer" / "bin" / "yt-dlp.exe"):
+        if c.exists():
+            return str(c)
+    return shutil.which("yt-dlp")
+
+
+# ---------------------------------------------------------------- core logic
+
 def extract_urls(text: str) -> list[str]:
     seen: dict[str, None] = {}
     for url in URL_RE.findall(text):
@@ -55,63 +74,59 @@ def extract_urls(text: str) -> list[str]:
     return list(seen)
 
 
-def download(urls: list[str], out_dir: Path, ffmpeg_dir: str,
+def _stream(cmd: list[str], log, is_cancelled) -> int:
+    """Run cmd, feeding output lines to log. Returns exit code (-1 = cancelled)."""
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace",
+        creationflags=CREATE_NO_WINDOW)
+    for line in proc.stdout:
+        line = line.rstrip()
+        if line:
+            log(line)
+        if is_cancelled():
+            proc.terminate()
+            proc.wait()
+            return -1
+    return proc.wait()
+
+
+def download(urls: list[str], out_dir: Path, ytdlp: str, ffmpeg_dir: str,
              log, is_cancelled=lambda: False, attempts: int = 3) -> bool:
     """Download URLs as MP3s into out_dir. Returns True if all succeeded."""
-    import yt_dlp
-
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    class UILogger:
-        def debug(self, msg):
-            if msg.startswith("[debug]"):
-                return
-            log(msg)
+    # Let yt-dlp update itself so TikTok fixes arrive automatically.
+    log("Checking for downloader updates...")
+    _stream([ytdlp, "-U"], log, is_cancelled)
+    if is_cancelled():
+        return False
+    log("")
 
-        def info(self, msg):
-            log(msg)
-
-        def warning(self, msg):
-            log(msg)
-
-        def error(self, msg):
-            log(msg)
-
-    def hook(d):
-        if is_cancelled():
-            raise yt_dlp.utils.DownloadCancelled()
-        if d["status"] == "finished":
-            log(f"Downloaded: {Path(d.get('filename', '?')).name}")
-
-    opts = {
-        "format": "ba/b[vcodec^=h264]/b",
-        "outtmpl": str(out_dir / "%(title).80s [%(id)s].%(ext)s"),
-        "windowsfilenames": True,
-        "download_archive": str(out_dir / ARCHIVE_NAME),
-        "overwrites": False,
-        "ignoreerrors": True,
-        "noprogress": True,
-        "ffmpeg_location": ffmpeg_dir,
-        "logger": UILogger(),
-        "progress_hooks": [hook],
-        "postprocessors": [
-            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3",
-             "preferredquality": "0"},
-            {"key": "FFmpegMetadata"},
-        ],
-    }
+    cmd = [
+        ytdlp,
+        "--ffmpeg-location", ffmpeg_dir,
+        "-x", "--audio-format", "mp3", "--audio-quality", "0",
+        # TikTok's h265 ("bytevc1") streams often arrive with no audio track
+        # despite advertising AAC, so prefer audio-only, then h264, then best.
+        "-f", "ba/b[vcodec^=h264]/b",
+        "--embed-metadata",
+        "--download-archive", str(out_dir / ARCHIVE_NAME),
+        "--no-overwrites",
+        "--ignore-errors",
+        "--windows-filenames",
+        "--no-progress",
+        "-o", str(out_dir / "%(title).80s [%(id)s].%(ext)s"),
+        *urls,
+    ]
 
     # TikTok extraction is flaky; the archive makes retry passes cheap because
     # finished songs are skipped, so only failed ones are re-attempted.
     for attempt in range(attempts):
-        if is_cancelled():
+        code = _stream(cmd, log, is_cancelled)
+        if code == -1:
+            log("Cancelled.")
             return False
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            try:
-                code = ydl.download(urls)
-            except yt_dlp.utils.DownloadCancelled:
-                log("Cancelled.")
-                return False
         if code == 0:
             return True
         if attempt < attempts - 1:
@@ -251,9 +266,10 @@ def run_gui(smoke: bool = False) -> None:
                                    "collection link. Found several links - "
                                    "switch to 'Video link(s)' mode for those.")
             return
+        ytdlp = find_ytdlp()
         ffmpeg_dir = find_ffmpeg()
-        if not ffmpeg_dir:
-            messagebox.showerror(APP_NAME, "ffmpeg was not found. Please "
+        if not ytdlp or not ffmpeg_dir:
+            messagebox.showerror(APP_NAME, "Bundled tools are missing. Please "
                                  "reinstall the app.")
             return
         out_dir = Path(out_var.get().strip() or str(DEFAULT_OUTPUT))
@@ -272,8 +288,8 @@ def run_gui(smoke: bool = False) -> None:
         log_box.config(state="disabled")
 
         t = threading.Thread(
-            target=lambda: download(urls, out_dir, ffmpeg_dir, log_q.put,
-                                    cancelled.is_set),
+            target=lambda: download(urls, out_dir, ytdlp, ffmpeg_dir,
+                                    log_q.put, cancelled.is_set),
             daemon=True)
         worker.append(t)
         t.start()
@@ -298,14 +314,15 @@ def run_cli(argv: list[str]) -> int:
             out_dir = Path(next(it))
         else:
             urls.extend(extract_urls(a))
+    ytdlp = find_ytdlp()
     ffmpeg_dir = find_ffmpeg()
-    if not ffmpeg_dir:
-        print("ffmpeg not found")
+    if not ytdlp or not ffmpeg_dir:
+        print("yt-dlp / ffmpeg not found")
         return 2
     if not urls:
         print("no TikTok links given")
         return 2
-    ok = download(urls, out_dir, ffmpeg_dir, print)
+    ok = download(urls, out_dir, ytdlp, ffmpeg_dir, print)
     print("OK" if ok else "FAILED")
     return 0 if ok else 1
 
