@@ -1,0 +1,11 @@
+# build artifacts
+build/
+dist/
+installer/Output/
+installer/ffmpeg/
+__pycache__/
+
+# personal data / downloads
+Songs/
+links.txt
+downloaded_archive.txt
