@@ -12,6 +12,8 @@ perfect for building a music library for your car radio or offline player.
 - **Auto-retries** flaky TikTok responses
 - **Self-updating download engine** — when TikTok changes something and
   breaks downloading, the fix arrives automatically, no reinstall needed
+- **Simple, senior-friendly interface** in **English** and **简体中文**
+  (switch anytime with one click)
 
 ![App flow](https://img.shields.io/badge/TikTok-→%20MP3-brightgreen)
 
