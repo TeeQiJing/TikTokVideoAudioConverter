@@ -56,8 +56,13 @@ def read_links() -> list[str]:
 
 def download(urls: list[str], ffmpeg_dir: str) -> None:
     SONGS_DIR.mkdir(exist_ok=True)
+    # Plain browser user-agent sidesteps TikTok's Aug 2026 bot detection
+    # that breaks yt-dlp's default UA (yt-dlp/yt-dlp#17403).
+    browser_ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
     cmd = [
         sys.executable, "-m", "yt_dlp",
+        "--user-agent", browser_ua,
         "--ffmpeg-location", ffmpeg_dir,
         "-x", "--audio-format", "mp3", "--audio-quality", "0",
         # TikTok's h265 ("bytevc1") streams often arrive with no audio track

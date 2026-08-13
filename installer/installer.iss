@@ -5,7 +5,7 @@
 ;   ffmpeg\ffmpeg.exe, ffmpeg\ffprobe.exe   (bundled ffmpeg)
 
 #define MyAppName "TikTok Video Audio Converter"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "TeeQiJing"
 #define MyAppURL "https://github.com/TeeQiJing/TikTokVideoAudioConverter"
 #define MyAppExeName "TikTokVideoAudioConverter.exe"
