@@ -1,11 +1,11 @@
-; Inno Setup script for TikTok Video Audio Converter
+﻿; Inno Setup script for TikTok Video Audio Converter
 ; Build with:  ISCC.exe installer.iss
 ; Expects:
 ;   ..\dist\TikTokVideoAudioConverter.exe   (PyInstaller output)
 ;   ffmpeg\ffmpeg.exe, ffmpeg\ffprobe.exe   (bundled ffmpeg)
 
 #define MyAppName "TikTok Video Audio Converter"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.0.4"
 #define MyAppPublisher "TeeQiJing"
 #define MyAppURL "https://github.com/TeeQiJing/TikTokVideoAudioConverter"
 #define MyAppExeName "TikTokVideoAudioConverter.exe"

@@ -158,6 +158,8 @@ def _stream(cmd: list[str], log, is_cancelled) -> int:
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding="utf-8", errors="replace",
+        # Make yt-dlp emit UTF-8 into the pipe so non-ASCII titles survive
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         creationflags=CREATE_NO_WINDOW)
     for line in proc.stdout:
         line = line.rstrip()
@@ -171,7 +173,7 @@ def _stream(cmd: list[str], log, is_cancelled) -> int:
 
 
 def download(urls: list[str], out_dir: Path, ytdlp: str, ffmpeg_dir: str,
-             log, is_cancelled=lambda: False, attempts: int = 3) -> bool:
+             log, is_cancelled=lambda: False, attempts: int = 5) -> bool:
     """Download URLs as MP3s into out_dir. Returns True if all succeeded."""
     out_dir.mkdir(parents=True, exist_ok=True)
 
