@@ -31,10 +31,15 @@ URL_RE = re.compile(r"https?://(?:www\.|vm\.|vt\.|m\.)?tiktok\.com/\S+")
 
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
-# Plain browser user-agent sidesteps TikTok's Aug 2026 bot detection that
-# breaks yt-dlp's default UA (yt-dlp/yt-dlp#17403); harmless otherwise.
-BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-              "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
+# Plain browser user-agents sidestep TikTok's Aug 2026 bot detection that
+# breaks yt-dlp's default UA (yt-dlp/yt-dlp#17403). TikTok blocks by Chrome
+# version range (140-149 banned as of mid-Aug), so retry passes rotate
+# through versions in different ranges in case one gets banned later.
+BROWSER_UAS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    f"(KHTML, like Gecko) Chrome/{v} Safari/537.36"
+    for v in ("150.0.0.0", "139.0.0.0", "136.0.0.0")
+]
 
 # TikTok brand-ish palette
 C_BG = "#ffffff"
@@ -186,7 +191,6 @@ def download(urls: list[str], out_dir: Path, ytdlp: str, ffmpeg_dir: str,
 
     cmd = [
         ytdlp,
-        "--user-agent", BROWSER_UA,
         "--ffmpeg-location", ffmpeg_dir,
         "-x", "--audio-format", "mp3", "--audio-quality", "0",
         # TikTok's h265 ("bytevc1") streams often arrive with no audio track
@@ -205,7 +209,8 @@ def download(urls: list[str], out_dir: Path, ytdlp: str, ffmpeg_dir: str,
     # TikTok extraction is flaky; the archive makes retry passes cheap because
     # finished songs are skipped, so only failed ones are re-attempted.
     for attempt in range(attempts):
-        code = _stream(cmd, log, is_cancelled)
+        ua = BROWSER_UAS[attempt % len(BROWSER_UAS)]
+        code = _stream([*cmd, "--user-agent", ua], log, is_cancelled)
         if code == -1:
             log("Cancelled.")
             return False
