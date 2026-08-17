@@ -192,7 +192,12 @@ def download(urls: list[str], out_dir: Path, ytdlp: str, ffmpeg_dir: str,
     cmd = [
         ytdlp,
         "--ffmpeg-location", ffmpeg_dir,
-        "-x", "--audio-format", "mp3", "--audio-quality", "0",
+        # CBR 192k @ 44.1kHz: safest combo for car-radio MP3 decoders (VBR
+        # makes cheap decoders pop/stutter). Loudness-normalize with a
+        # -1.5dB true-peak limiter so TikTok's hot masters don't clip.
+        "-x", "--audio-format", "mp3", "--audio-quality", "192K",
+        "--postprocessor-args",
+        "ExtractAudio:-af loudnorm=I=-16:TP=-1.5:LRA=11 -ar 44100",
         # TikTok's h265 ("bytevc1") streams often arrive with no audio track
         # despite advertising AAC, so prefer audio-only, then h264, then best.
         "-f", "ba/b[vcodec^=h264]/b",

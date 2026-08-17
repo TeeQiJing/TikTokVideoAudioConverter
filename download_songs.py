@@ -64,7 +64,9 @@ def download(urls: list[str], ffmpeg_dir: str) -> None:
         sys.executable, "-m", "yt_dlp",
         "--user-agent", browser_ua,
         "--ffmpeg-location", ffmpeg_dir,
-        "-x", "--audio-format", "mp3", "--audio-quality", "0",
+        "-x", "--audio-format", "mp3", "--audio-quality", "192K",
+        "--postprocessor-args",
+        "ExtractAudio:-af loudnorm=I=-16:TP=-1.5:LRA=11 -ar 44100",
         # TikTok's h265 ("bytevc1") streams often arrive with no audio track
         # despite advertising AAC, so prefer audio-only, then h264, then best.
         "-f", "ba/b[vcodec^=h264]/b",
