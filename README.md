@@ -220,8 +220,20 @@ gradlew assembleDebug
 :: appuild\outputspk\debugpp-debug.apk
 ```
 
-Needs JDK 17+ and an Android SDK with platform 35. The app is unsigned in
-debug; build a release variant with your own signing config to share it.
+Needs JDK 17+ and an Android SDK with platform 35.
+
+For a signed release build, create `android\keystore.properties` from
+`keystore.properties.example` and point it at your own keystore, then:
+
+```bat
+gradlew assembleRelease
+:: appuild\outputspkeleasepp-release.apk
+```
+
+The properties file and the keystore stay out of the repository. Without
+them the project still builds - the release variant just falls back to the
+debug signature. Keep the keystore backed up: it is what lets you ship
+updates that Android will install over an existing copy.
 
 ## Building from Source
 
