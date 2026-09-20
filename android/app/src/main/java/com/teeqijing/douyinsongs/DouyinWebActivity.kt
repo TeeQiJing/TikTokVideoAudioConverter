@@ -38,6 +38,11 @@ class DouyinWebActivity : AppCompatActivity() {
         const val MODE_FOLDERS = "folders"
         const val MODE_SONGS = "songs"
 
+        // ~40s of retries before asking the user to tap the folder himself.
+        private const val MAX_CLICK_TRIES = 20
+        // Rounds with no new rows before re-opening the folder.
+        private const val STALL_ROUNDS = 12
+
         const val COLLECTION_URL =
             "https://www.douyin.com/user/self?from_tab_name=main" +
                 "&showSubTab=favorite_folder&showTab=favorite_collection"
@@ -57,8 +62,11 @@ class DouyinWebActivity : AppCompatActivity() {
     private var mode = MODE_FOLDERS
     private var folderId: String? = null
     private var folderName: String? = null
-    private var autoWorkStarted = false
+    private var folderOpened = false
+    private var clickTries = 0
     private var idleRounds = 0
+    private var stalledRounds = 0
+    private var lastSeenCount = -1
     private var reloadedAfterLogin = false
     private var blocked = false
 
@@ -101,6 +109,12 @@ class DouyinWebActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureWebView() {
+        // Debug builds only: lets the page be inspected over adb while
+        // working out why Douyin's grid is or is not loading more rows.
+        if (0 != (applicationInfo.flags and
+                  android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
 
@@ -194,22 +208,49 @@ class DouyinWebActivity : AppCompatActivity() {
             return
         }
         val id = folderId ?: return
+        val name = folderName ?: return
         val found = Capture.songCount(id)
-        status.text = getString(R.string.web_found_songs, folderName.orEmpty(), found)
+        status.text = getString(R.string.web_found_songs, name, found)
 
-        if (!autoWorkStarted) {
-            autoWorkStarted = true
-            folderName?.let { web.evaluateJavascript(clickFolderJs(it), null) }
+        // The tile does not exist yet on the first tick - Douyin renders the
+        // folder list well after the page "finishes" loading - so keep trying
+        // until the click actually lands rather than firing once and hoping.
+        if (!folderOpened) {
+            if (clickTries++ > MAX_CLICK_TRIES) {
+                status.text = getString(R.string.web_pick_folder_yourself, name)
+                return
+            }
+            web.evaluateJavascript(clickFolderJs(name)) { result ->
+                if (result != null && result.contains("CLICKED")) {
+                    folderOpened = true
+                    idleRounds = 0
+                    stalledRounds = 0
+                }
+            }
             return
         }
+
         // Once the folder is open, keep scrolling so Douyin loads the rest.
         web.evaluateJavascript(SCROLL_JS, null)
 
         if (found > 0 && !Capture.hasMore(id)) {
             idleRounds++
             if (idleRounds >= 3) finishWithResult()
+            return
+        }
+        idleRounds = 0
+
+        // Still claiming more rows but nothing new arriving: the click may
+        // have opened the wrong view, so go back and try to open it again.
+        if (found == lastSeenCount) {
+            if (++stalledRounds >= STALL_ROUNDS) {
+                stalledRounds = 0
+                folderOpened = false
+                web.loadUrl(COLLECTION_URL)
+            }
         } else {
-            idleRounds = 0
+            stalledRounds = 0
+            lastSeenCount = found
         }
     }
 
@@ -284,21 +325,54 @@ private val HOOK_JS = """
 private fun clickFolderJs(name: String): String = """
 (function () {
   var want = ${org.json.JSONObject.quote(name)};
-  var all = document.querySelectorAll('div,span,a,li');
-  var hit = null;
+  var norm = function (s) { return (s || '').replace(/\s+/g, ' ').trim(); };
+
+  // A folder tile reads like "音乐共50作品". Matching on the name alone is
+  // not safe: Douyin's own filter chips are called 视频 / 音乐 / 合集 / 短剧,
+  // so a folder named 音乐 collides with one, and clicking the chip opens an
+  // empty tab instead of the folder. The chips live in a tab strip, and only
+  // the real tile carries the item count, so require both.
+  var all = document.querySelectorAll('li,div,a');
+  var best = null;
   for (var i = 0; i < all.length; i++) {
     var e = all[i];
-    if ((e.textContent || '').trim() === want &&
-        e.getBoundingClientRect().width > 0) hit = e;
+    if (e.closest('[role="tablist"], .semi-tabs')) continue;
+    var t = norm(e.textContent);
+    if (t.indexOf(want) !== 0) continue;
+    if (!/共\s*\d+\s*作品/.test(t)) continue;
+    var r = e.getBoundingClientRect();
+    if (r.width < 80 || r.height < 40) continue;
+    if (!best || e.tagName === 'LI') { best = e; if (e.tagName === 'LI') break; }
   }
-  if (!hit) return 'NOT_FOUND';
-  var n = hit;
-  for (var j = 0; j < 6 && n; j++) {
-    var r = n.getBoundingClientRect();
-    if (r.width > 120 && r.height > 40) break;
-    n = n.parentElement;
+  if (!best) {
+    // Older layouts show the bare name; still avoid the tab strip.
+    for (var j = all.length - 1; j >= 0; j--) {
+      var c = all[j];
+      if (c.closest('[role="tablist"], .semi-tabs')) continue;
+      if (norm(c.textContent) === want &&
+          c.getBoundingClientRect().width > 0) { best = c; break; }
+    }
   }
-  (n || hit).click();
+  if (!best) return 'NOT_FOUND';
+
+  best.scrollIntoView({block: 'center'});
+  var box = best.getBoundingClientRect();
+  var x = box.x + box.width / 2, y = box.y + box.height / 2;
+  var target = document.elementFromPoint(x, y) || best;
+
+  // A bare .click() is ignored here - the tile listens for pointer events -
+  // so play back the whole press/release sequence at its centre.
+  var base = {bubbles: true, cancelable: true, composed: true,
+              clientX: x, clientY: y, pointerId: 1, isPrimary: true,
+              pointerType: 'touch', button: 0};
+  ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']
+    .forEach(function (type) {
+      var Ctor = type.indexOf('pointer') === 0 ? PointerEvent : MouseEvent;
+      var opt = {};
+      for (var k in base) opt[k] = base[k];
+      opt.buttons = (type === 'pointerdown' || type === 'mousedown') ? 1 : 0;
+      target.dispatchEvent(new Ctor(type, opt));
+    });
   return 'CLICKED';
 })();
 """

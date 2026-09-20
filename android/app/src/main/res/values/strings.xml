@@ -9,6 +9,7 @@
     <string name="web_found_folders">找到 %1$d 个收藏夹</string>
     <string name="web_found_songs">收藏夹「%1$s」：已找到 %2$d 首歌</string>
     <string name="web_done">完成</string>
+    <string name="web_pick_folder_yourself">请在下面点开收藏夹「%1$s」</string>
     <string name="web_blocked">抖音暂时拒绝访问，请等几分钟后再试一次</string>
 
     <string name="usb_ready">✅ U 盘已插入</string>
