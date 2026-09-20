@@ -171,6 +171,58 @@ TikTok and 抖音 links are downloaded in two separate yt-dlp passes, so the
 A hidden archive file in your songs folder records every downloaded video
 ID, which is what makes incremental syncing and cheap retries possible.
 
+## Android app — 抖音歌曲下载 (`android/`)
+
+A companion Android app for the 抖音 side, for when carrying the songs
+around shouldn't involve a PC at all. It reads a 收藏夹 from the phone and
+writes the MP3s **straight onto a pendrive** over USB-OTG.
+
+**Why it exists:** the desktop app needs a laptop, and the songs are
+destined for a USB stick anyway. On the phone the whole trip is one tap.
+
+**How to use it**
+
+1. Once: open the app → **选择收藏夹…** → log in to Douyin in the window
+   that appears → pick the folder.
+2. Every time: plug the pendrive in (Type-C adapter), check it says
+   **✅ U 盘已插入**, tap **⬇ 下载我的歌曲**.
+
+Songs land in `DouyinSongs/` on the pendrive, and anything already there
+is skipped, so re-running only fetches what's new.
+
+**If it can't see the pendrive** — on OPPO/realme phones OTG is off by
+default *and turns itself off again after about 10 minutes idle*. Turn it
+back on under **设置 → 其他设置 → OTG连接**. The app shows that path on
+screen when no drive is found.
+
+**How it works.** Douyin's collection listing already contains, for each
+saved video, a `music.play_url` pointing at the track as a finished MP3
+(44.1 kHz stereo, typically 128 kbps). So there is no transcoding step at
+all: no ffmpeg, no NDK, and nothing is written to phone storage — the
+bytes go from Douyin's CDN straight onto the pendrive. The listing itself
+comes from a WebView the user logs into once, capturing the response the
+page fetches for itself, the same trick the desktop app uses. USB access
+goes through [libaums](https://github.com/magnusja/libaums), which finds
+the drive on its own when it is plugged in (FAT32 only — which is what
+car stereos want anyway).
+
+**Trade-offs versus the desktop app:** 128 kbps rather than 192, no
+loudness normalisation (that needs ffmpeg), and videos whose audio Douyin
+does not publish as a music track are skipped.
+
+**Building**
+
+```bat
+cd android
+:: point it at your SDK (forward slashes, or escape the backslashes)
+echo sdk.dir=C:/Users/you/AppData/Local/Android/Sdk> local.properties
+gradlew assembleDebug
+:: appuild\outputspk\debugpp-debug.apk
+```
+
+Needs JDK 17+ and an Android SDK with platform 35. The app is unsigned in
+debug; build a release variant with your own signing config to share it.
+
 ## Building from Source
 
 ```bat
