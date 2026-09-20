@@ -1,4 +1,4 @@
-"""TikTok -> MP3 batch downloader.
+"""TikTok / Douyin -> MP3 batch downloader.
 
 Workflow:
   1. Paste TikTok share links (or whole WhatsApp messages containing them)
@@ -56,13 +56,11 @@ def read_links() -> list[str]:
 
 def download(urls: list[str], ffmpeg_dir: str) -> None:
     SONGS_DIR.mkdir(exist_ok=True)
-    # Plain browser user-agent sidesteps TikTok's Aug 2026 bot detection
-    # that breaks yt-dlp's default UA (yt-dlp/yt-dlp#17403).
-    browser_ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36")
+    # yt-dlp/yt-dlp#17403 (TikTok's Aug 2026 bot detection) was fixed upstream
+    # in yt-dlp 2026.08.19, which solves the JS challenge itself - so no
+    # user-agent override is needed any more. Keep yt-dlp up to date.
     cmd = [
         sys.executable, "-m", "yt_dlp",
-        "--user-agent", browser_ua,
         "--ffmpeg-location", ffmpeg_dir,
         "-x", "--audio-format", "mp3", "--audio-quality", "192K",
         "--postprocessor-args",
