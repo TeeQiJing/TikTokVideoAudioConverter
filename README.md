@@ -217,7 +217,7 @@ cd android
 :: point it at your SDK (forward slashes, or escape the backslashes)
 echo sdk.dir=C:/Users/you/AppData/Local/Android/Sdk> local.properties
 gradlew assembleDebug
-:: appuild\outputspk\debugpp-debug.apk
+:: app\build\outputs\apk\debug\app-debug.apk
 ```
 
 Needs JDK 17+ and an Android SDK with platform 35.
@@ -227,7 +227,7 @@ For a signed release build, create `android\keystore.properties` from
 
 ```bat
 gradlew assembleRelease
-:: appuild\outputspkeleasepp-release.apk
+:: app\build\outputs\apk\release\app-release.apk
 ```
 
 The properties file and the keystore stay out of the repository. Without
