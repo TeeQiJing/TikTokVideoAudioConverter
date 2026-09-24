@@ -28,6 +28,11 @@
     <string name="no_folders_found">没有读到收藏夹，请再试一次</string>
     <string name="no_songs_found">这个收藏夹里没有可下载的歌曲</string>
 
+    <string name="notif_channel">下载进度</string>
+    <string name="notif_preparing">准备中…</string>
+    <string name="notif_downloading">正在下载 %1$d / %2$d</string>
+    <string name="notif_stop">停止</string>
+    <string name="keep_running">可以锁屏或去用别的应用，下载会继续</string>
     <string name="go">⬇  下载我的歌曲</string>
     <string name="opening_douyin">正在打开抖音…</string>
     <string name="downloading">正在下载 %1$d / %2$d …</string>

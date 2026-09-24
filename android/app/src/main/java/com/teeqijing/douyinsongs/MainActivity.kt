@@ -16,13 +16,12 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import androidx.core.app.ActivityCompat
 
 /**
  * The whole app is one screen with two buttons: choose a 收藏夹 once, then
@@ -40,6 +39,12 @@ class MainActivity : AppCompatActivity() {
 
     private val prefs by lazy { getSharedPreferences("douyinsongs", Context.MODE_PRIVATE) }
     private var busy = false
+    private val ui = Handler(Looper.getMainLooper())
+    private var lastSeenRun = 0
+    private var shownLines = -1
+    // Kept separate from Progress.running: the service takes a moment to
+    // start, and polling must survive that gap or the screen shows nothing.
+    private var watching = false
 
     private val usbWatcher = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -57,6 +62,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
         refreshFolderLabel()
+        lastSeenRun = Progress.completedRuns
+        askForNotifications()
 
         val filter = IntentFilter().apply {
             addAction(Usb.ACTION_PERMISSION)
@@ -78,12 +85,40 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshUsb()
+        // A download may have been started earlier and kept going while this
+        // screen was closed, so pick its progress back up.
+        if (Progress.running || watching) {
+            watching = true
+            watch()
+        } else {
+            renderProgress()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        ui.removeCallbacks(watcher)
+    }
+
+    /** Without this the progress notification is silently hidden on 13+. */
+    private fun askForNotifications() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        val granted = checkSelfPermission(
+            android.Manifest.permission.POST_NOTIFICATIONS
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            ActivityCompat.requestPermissions(this,
+                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 100)
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         runCatching { unregisterReceiver(usbWatcher) }
-        Usb.close()
+        ui.removeCallbacks(watcher)
+        // The service owns the drive while it is working; closing it here
+        // would pull the pendrive out from under a running download.
+        if (!Progress.running) Usb.close()
     }
 
     // ------------------------------------------------------------------ UI
@@ -243,59 +278,61 @@ class MainActivity : AppCompatActivity() {
 
     private fun startDownload() {
         val folderId = savedFolderId() ?: return
-        val songs = Capture.songs(folderId)
-        if (songs.isEmpty()) {
+        if (Capture.songs(folderId).isEmpty()) {
             status.text = getString(R.string.no_songs_found)
             return
         }
+        lastSeenRun = Progress.completedRuns
         setBusy(true)
-        status.text = getString(R.string.downloading, 0, songs.size)
+        logView.text = ""
+        shownLines = -1
+        status.text = getString(R.string.keep_running)
+        watching = true
+        DownloadService.start(this, folderId)
+        watch()
+    }
 
-        lifecycleScope.launch {
-            var saved = 0
-            var skipped = 0
-            var failed = 0
-            try {
-                withContext(Dispatchers.IO) {
-                    val dir = Usb.openSongsDir(this@MainActivity)
-                    val existing = Usb.existingNames(dir)
-                    songs.forEachIndexed { index, song ->
-                        val name = song.fileName()
-                        withContext(Dispatchers.Main) {
-                            status.text = getString(
-                                R.string.downloading, index + 1, songs.size)
-                            progress.max = songs.size
-                            progress.progress = index
-                        }
-                        if (name in existing) {
-                            skipped++
-                            log("- 已有：$name")
-                            return@forEachIndexed
-                        }
-                        try {
-                            Downloader.fetch(song, { Usb.newFile(dir, name) }) { _, _ -> }
-                            saved++
-                            log("✓ $name")
-                        } catch (e: Exception) {
-                            failed++
-                            log("✗ $name  (${e.message})")
-                        }
-                    }
-                }
-                status.text = getString(R.string.done, saved, skipped, failed)
-            } catch (e: Usb.NeedsPermissionException) {
-                status.text = getString(R.string.usb_needs_permission)
-                Usb.requestPermission(this@MainActivity)
-            } catch (e: Usb.UnsupportedFormatException) {
-                status.text = getString(R.string.usb_not_fat32)
-            } catch (e: Exception) {
-                status.text = getString(R.string.failed, e.message ?: "")
-            } finally {
-                Usb.close()
-                setBusy(false)
-                progress.progress = progress.max
-                refreshUsb()
-            }
+    /**
+     * Polls the shared progress a few times a second. The work belongs to
+     * the service, so the screen can be closed and reopened mid-download and
+     * still pick the progress back up.
+     */
+    private fun watch() {
+        ui.removeCallbacks(watcher)
+        ui.post(watcher)
+    }
+
+    private val watcher = object : Runnable {
+        override fun run() {
+            renderProgress()
+            if (watching) ui.postDelayed(this, 400)
         }
+    }
+
+    private fun renderProgress() {
+        val shown = Progress.lines()
+        if (shown.size != shownLines) {
+            shownLines = shown.size
+            logView.text = shown.joinToString("\n")
+        }
+        if (Progress.running) {
+            setBusy(true)
+            progress.max = Progress.total
+            progress.progress = Progress.index
+            status.text = getString(R.string.downloading, Progress.index, Progress.total) +
+                "\n" + getString(R.string.keep_running)
+            return
+        }
+        if (Progress.completedRuns == lastSeenRun) return
+        lastSeenRun = Progress.completedRuns
+        watching = false
+        setBusy(false)
+        val failure = Progress.error
+        status.text = if (failure != null) {
+            getString(R.string.failed, failure)
+        } else {
+            getString(R.string.done, Progress.saved, Progress.skipped, Progress.failed)
+        }
+        refreshUsb()
     }
 }
