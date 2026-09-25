@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import java.util.Collections
+import me.jahnen.libaums.core.fs.UsbFile
 
 /**
  * Runs the download on its own, so it survives the screen turning off and
@@ -28,6 +29,20 @@ class DownloadService : Service() {
         const val ACTION_START = "com.teeqijing.douyinsongs.START"
         const val ACTION_CANCEL = "com.teeqijing.douyinsongs.CANCEL"
         const val EXTRA_FOLDER_ID = "folder_id"
+
+        /** Reconnect attempts before a song is given up on. */
+        private const val USB_RETRIES = 3
+        /** Time for the drive to settle before reopening it. */
+        private const val USB_SETTLE_MS = 2000L
+        /**
+         * How long to keep trying to pick the drive back up. A drop makes it
+         * re-enumerate as a different device, which takes a few seconds, so
+         * a couple of quick retries would give up while it is still coming
+         * back.
+         */
+        private const val RECONNECT_WINDOW_MS = 25_000L
+        /** A breather between songs; back-to-back writes seem to upset some drives. */
+        private const val BETWEEN_SONGS_MS = 250L
 
         private const val CHANNEL_ID = "downloads"
         private const val NOTIFICATION_ID = 1
@@ -77,7 +92,7 @@ class DownloadService : Service() {
         val songs = Capture.songs(folderId)
         Progress.begin(songs.size)
         try {
-            val dir = Usb.openSongsDir(this)
+            var dir = openWithRetry()
             val existing = Usb.existingNames(dir)
             for ((index, song) in songs.withIndex()) {
                 if (Progress.cancelled) break
@@ -91,19 +106,43 @@ class DownloadService : Service() {
                     Progress.log("- 已有：$name")
                     continue
                 }
-                try {
-                    Downloader.fetch(song, { Usb.newFile(dir, name) }) { _, _ -> }
-                    Progress.saved++
-                    Progress.log("✓ $name")
-                } catch (e: Exception) {
-                    Progress.failed++
-                    Progress.log("✗ $name  (${e.message})")
+                Thread.sleep(BETWEEN_SONGS_MS)
+
+                var attempt = 0
+                while (true) {
+                    try {
+                        Downloader.fetch(song, { Usb.newFile(dir, name) }) { _, _ -> }
+                        Progress.saved++
+                        Progress.log("✓ $name")
+                        break
+                    } catch (e: Exception) {
+                        // Never leave a partial file behind: it would be big
+                        // enough to count as "already downloaded" next run.
+                        runCatching { Usb.discard(dir, name) }
+                        // A dropped drive kills the handle the whole run
+                        // shares, so without reconnecting here every
+                        // remaining song fails for the same reason.
+                        if (looksLikeUsbDrop(e) && attempt < USB_RETRIES) {
+                            attempt++
+                            Progress.log("… U 盘连接中断，正在重新连接（$attempt）")
+                            val reopened = reopenDrive()
+                            if (reopened == null) {
+                                Progress.error = getString(R.string.usb_lost)
+                                return
+                            }
+                            dir = reopened
+                            continue
+                        }
+                        Progress.failed++
+                        Progress.log("✗ $name  (${e.message})")
+                        break
+                    }
                 }
             }
         } catch (e: Usb.NeedsPermissionException) {
             Progress.error = getString(R.string.usb_needs_permission)
-        } catch (e: Usb.UnsupportedFormatException) {
-            Progress.error = getString(R.string.usb_not_fat32)
+        } catch (e: Usb.CannotOpenException) {
+            Progress.error = getString(R.string.usb_cannot_open)
         } catch (e: Exception) {
             Progress.error = e.message ?: e.javaClass.simpleName
         } finally {
@@ -113,6 +152,54 @@ class DownloadService : Service() {
             stopForegroundCompat()
             stopSelf()
         }
+    }
+
+    /** Opens the drive, allowing for it still settling after a plug-in. */
+    private fun openWithRetry(): UsbFile {
+        var last: Exception? = null
+        repeat(USB_RETRIES) { attempt ->
+            try {
+                return Usb.openSongsDir(this)
+            } catch (e: Usb.CannotOpenException) {
+                last = e
+                Usb.close()
+                Thread.sleep(USB_SETTLE_MS)
+            }
+        }
+        throw last ?: Usb.CannotOpenException(IllegalStateException("unknown"))
+    }
+
+    /** Does this look like the drive falling off the bus, not a bad download? */
+    private fun looksLikeUsbDrop(e: Exception): Boolean {
+        var cause: Throwable? = e
+        while (cause != null) {
+            val text = cause.message.orEmpty().lowercase()
+            if (text.contains("recovery") || text.contains("reattach") ||
+                text.contains("transfer command") || text.contains("endpoint")) {
+                return true
+            }
+            cause = cause.cause
+        }
+        return false
+    }
+
+    /**
+     * Waits for the drive to come back and reopens it.
+     *
+     * After a drop it reappears as a new USB device, so this waits for it to
+     * be present and permitted again rather than failing on the first try.
+     */
+    private fun reopenDrive(): UsbFile? {
+        runCatching { Usb.close() }
+        val deadline = System.currentTimeMillis() + RECONNECT_WINDOW_MS
+        while (System.currentTimeMillis() < deadline && !Progress.cancelled) {
+            Thread.sleep(USB_SETTLE_MS)
+            if (!Usb.isAttached(this) || !Usb.hasPermission(this)) continue
+            val dir = runCatching { Usb.openSongsDir(this) }.getOrNull()
+            if (dir != null) return dir
+            runCatching { Usb.close() }
+        }
+        return null
     }
 
     // -------------------------------------------------------- housekeeping

@@ -27,8 +27,14 @@ object Usb {
 
     class NoDriveException : Exception("No pendrive found")
     class NeedsPermissionException : Exception("USB permission not granted")
-    class UnsupportedFormatException(cause: Throwable) :
-        Exception("Pendrive is not FAT32", cause)
+    /**
+     * The drive would not open. init() fails for a filesystem it cannot read,
+     * but equally for a drive left in a bad state by an interrupted transfer,
+     * so this must not claim to know which - telling someone to reformat a
+     * working drive would cost them every song on it.
+     */
+    class CannotOpenException(cause: Throwable) :
+        Exception("Could not open the drive", cause)
 
     private var device: UsbMassStorageDevice? = null
 
@@ -64,12 +70,12 @@ object Usb {
         try {
             dev.init()
         } catch (e: Exception) {
-            throw UnsupportedFormatException(e)
+            throw CannotOpenException(e)
         }
         device = dev
 
         val partition = dev.partitions.firstOrNull()
-            ?: throw UnsupportedFormatException(IllegalStateException("no partition"))
+            ?: throw CannotOpenException(IllegalStateException("no partition"))
         val root = partition.fileSystem.rootDirectory
         return root.search(SONGS_DIR)?.takeIf { it.isDirectory }
             ?: root.createDirectory(SONGS_DIR)
@@ -100,6 +106,19 @@ object Usb {
     fun newFile(dir: UsbFile, name: String): OutputStream {
         dir.search(name)?.delete()
         return UsbFileOutputStream(dir.createFile(name))
+    }
+
+    /**
+     * Removes a half-written file. A transfer that dies part way leaves one
+     * behind that is large enough to look finished, and it would then be
+     * skipped forever - a song that quietly cuts off mid-play.
+     */
+    fun discard(dir: UsbFile, name: String) {
+        try {
+            dir.search(name)?.delete()
+        } catch (e: Exception) {
+            // Nothing better to do; the retry will overwrite it anyway.
+        }
     }
 
     @Synchronized

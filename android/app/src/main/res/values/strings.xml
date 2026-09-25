@@ -17,7 +17,8 @@
 设置 → 其他设置 → OTG连接 打开 OTG
 （OTG 闲置约 10 分钟会自动关闭）</string>
     <string name="usb_needs_permission">⚠️ 请允许本应用使用 U 盘</string>
-    <string name="usb_not_fat32">U 盘格式不支持，请格式化为 FAT32</string>
+    <string name="usb_lost">U 盘连接断开了。请把 U 盘拔出再插回，然后再按一次下载（已下载的不会重来）。</string>
+    <string name="usb_cannot_open">连接不上 U 盘。请把 U 盘拔出再插回，然后再按一次下载。（如果多次都不行，可能要把 U 盘格式化为 FAT32——格式化会清空 U 盘，请先备份。）</string>
 
     <string name="no_folder">还没有选收藏夹</string>
     <string name="folder_is">收藏夹：%1$s</string>
