@@ -262,6 +262,11 @@ class DouyinWebActivity : AppCompatActivity() {
 
     private fun finishWithResult() {
         CookieManager.getInstance().flush()
+        // Browsing douyin.com leaves a large media cache behind - well over
+        // 100MB after a few runs. The point of this app is that nothing
+        // piles up on the phone, and clearing the cache does not touch the
+        // cookies, so the login still survives.
+        runCatching { web.clearCache(true) }
         if (isFinishing) return
         setResult(Activity.RESULT_OK, Intent())
         finish()

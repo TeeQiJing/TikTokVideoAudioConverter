@@ -39,4 +39,31 @@
     <string name="downloading">正在下载 %1$d / %2$d …</string>
     <string name="done">完成！新增 %1$d 首，已有 %2$d 首，失败 %3$d 首</string>
     <string name="failed">出错了：%1$s</string>
+
+    <string name="tab_download">⬇ 下载歌曲</string>
+    <string name="tab_files">📁 我的 U 盘</string>
+
+    <string name="files_here">位置：%1$s</string>
+    <string name="files_drive_root">U 盘（全部文件）</string>
+    <string name="files_up">⬆ 返回上一层</string>
+    <string name="files_loading">正在读取 U 盘…</string>
+    <string name="files_cannot_read">读不到这个文件夹</string>
+    <string name="files_empty">这里是空的</string>
+    <string name="files_summary">%1$d 首歌曲 · U 盘还剩 %2$s</string>
+    <string name="files_busy_downloading">正在下载歌曲，请等下载完成后再整理 U 盘</string>
+    <string name="files_opening">正在打开…</string>
+    <string name="files_play_failed">放不出来，可能文件有问题</string>
+    <string name="files_rename">重命名</string>
+    <string name="files_delete">删除</string>
+    <string name="files_delete_confirm">确定要删除「%1$s」吗？删除后就找不回来了。</string>
+    <string name="files_renamed">已改名</string>
+    <string name="files_deleted">已删除</string>
+    <string name="files_action_failed">做不到，请再试一次</string>
+    <string name="files_ok">确定</string>
+    <string name="files_cancel">取消</string>
+
+    <string name="sort_name">名称</string>
+    <string name="sort_time">时间</string>
+    <string name="sort_duration">时长</string>
+    <string name="sort_size">大小</string>
 </resources>

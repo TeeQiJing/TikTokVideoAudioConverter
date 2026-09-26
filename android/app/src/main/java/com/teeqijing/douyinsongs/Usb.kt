@@ -38,6 +38,12 @@ object Usb {
 
     private var device: UsbMassStorageDevice? = null
 
+    /**
+     * Serialises every access to the drive. It is one serial device, so a
+     * download, the file list and the audio player must take turns.
+     */
+    val ioLock = Any()
+
     /** A pendrive is physically attached (permission may still be missing). */
     fun isAttached(context: Context): Boolean =
         UsbMassStorageDevice.getMassStorageDevices(context).isNotEmpty()
@@ -79,6 +85,37 @@ object Usb {
         val root = partition.fileSystem.rootDirectory
         return root.search(SONGS_DIR)?.takeIf { it.isDirectory }
             ?: root.createDirectory(SONGS_DIR)
+    }
+
+    /** Opens the drive and hands back its top folder, for browsing. */
+    @Synchronized
+    fun openRoot(context: Context): UsbFile {
+        close()
+        val manager = context.getSystemService(Context.USB_SERVICE) as UsbManager
+        val dev = UsbMassStorageDevice.getMassStorageDevices(context).firstOrNull()
+            ?: throw NoDriveException()
+        if (!manager.hasPermission(dev.usbDevice)) throw NeedsPermissionException()
+        try {
+            dev.init()
+        } catch (e: Exception) {
+            throw CannotOpenException(e)
+        }
+        device = dev
+        val partition = dev.partitions.firstOrNull()
+            ?: throw CannotOpenException(IllegalStateException("no partition"))
+        return partition.fileSystem.rootDirectory
+    }
+
+    /** The songs folder inside an already-open drive, created if missing. */
+    fun songsDirIn(root: UsbFile): UsbFile =
+        root.search(SONGS_DIR)?.takeIf { it.isDirectory }
+            ?: root.createDirectory(SONGS_DIR)
+
+    /** Total size of the drive in bytes, or -1 when unknown. */
+    fun totalBytes(): Long = try {
+        device?.partitions?.firstOrNull()?.fileSystem?.capacity ?: -1L
+    } catch (e: Exception) {
+        -1L
     }
 
     /** Free space in bytes, or -1 when it cannot be read. */

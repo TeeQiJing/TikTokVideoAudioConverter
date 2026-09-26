@@ -45,6 +45,11 @@ class MainActivity : AppCompatActivity() {
     // Kept separate from Progress.running: the service takes a moment to
     // start, and polling must survive that gap or the screen shows nothing.
     private var watching = false
+    private lateinit var content: android.widget.FrameLayout
+    private lateinit var downloadTab: Button
+    private lateinit var filesTab: Button
+    private lateinit var files: FilesScreen
+    private var onFilesTab = false
 
     private val usbWatcher = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -60,7 +65,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(buildUi())
+        files = FilesScreen(this)
+        setContentView(buildShell())
         refreshFolderLabel()
         lastSeenRun = Progress.completedRuns
         askForNotifications()
@@ -98,6 +104,8 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         ui.removeCallbacks(watcher)
+        // Let go of the drive so a download is never blocked by the browser.
+        if (onFilesTab) files.onHide()
     }
 
     /** Without this the progress notification is silently hidden on 13+. */
@@ -116,12 +124,68 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         runCatching { unregisterReceiver(usbWatcher) }
         ui.removeCallbacks(watcher)
+        files.onDestroy()
         // The service owns the drive while it is working; closing it here
         // would pull the pendrive out from under a running download.
         if (!Progress.running) Usb.close()
     }
 
     // ------------------------------------------------------------------ UI
+
+    /** Two big tabs: getting songs, and tidying what is already on the stick. */
+    private fun buildShell(): android.view.View {
+        val shell = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        content = android.widget.FrameLayout(this)
+        content.addView(buildUi())
+        content.addView(files.view().apply { visibility = android.view.View.GONE })
+        shell.addView(content, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Color.parseColor("#F2F2F2"))
+        }
+        downloadTab = tabButton(getString(R.string.tab_download)) { showTab(false) }
+        filesTab = tabButton(getString(R.string.tab_files)) { showTab(true) }
+        bar.addView(downloadTab, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        bar.addView(filesTab, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        shell.addView(bar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+
+        showTab(false)
+        return shell
+    }
+
+    private fun tabButton(label: String, onClick: () -> Unit) = Button(this).apply {
+        text = label
+        textSize = 16f
+        setPadding(0, 28, 0, 28)
+        setOnClickListener { onClick() }
+    }
+
+    private fun showTab(filesSelected: Boolean) {
+        onFilesTab = filesSelected
+        content.getChildAt(0).visibility =
+            if (filesSelected) android.view.View.GONE else android.view.View.VISIBLE
+        content.getChildAt(1).visibility =
+            if (filesSelected) android.view.View.VISIBLE else android.view.View.GONE
+        downloadTab.setBackgroundColor(
+            if (filesSelected) Color.parseColor("#E4E4E4") else Color.parseColor("#FE2C55"))
+        downloadTab.setTextColor(if (filesSelected) Color.DKGRAY else Color.WHITE)
+        filesTab.setBackgroundColor(
+            if (filesSelected) Color.parseColor("#FE2C55") else Color.parseColor("#E4E4E4"))
+        filesTab.setTextColor(if (filesSelected) Color.WHITE else Color.DKGRAY)
+        if (filesSelected) files.onShow() else files.onHide()
+    }
+
+    override fun onBackPressed() {
+        if (onFilesTab && files.onBackPressed()) return
+        if (onFilesTab) {
+            showTab(false)
+            return
+        }
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
+    }
 
     private fun buildUi(): android.view.View {
         val root = LinearLayout(this).apply {
@@ -282,6 +346,7 @@ class MainActivity : AppCompatActivity() {
             status.text = getString(R.string.no_songs_found)
             return
         }
+        files.onHide()
         lastSeenRun = Progress.completedRuns
         setBusy(true)
         logView.text = ""
